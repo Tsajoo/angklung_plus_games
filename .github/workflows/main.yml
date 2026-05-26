@@ -1,0 +1,290 @@
+name: Build Unsigned IPA (for TrollStore)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-ipa:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: false
+
+      - name: Disable Swift Package Manager
+        run: flutter config --no-enable-swift-package-manager
+
+      - name: Regenerate iOS project
+        run: |
+          rm -rf ios/ android/
+          flutter create --org com.example --project-name angklung --platforms=android,ios .
+
+      # ------------------------------------------------------------------
+      # 1. Place GoogleService-Info.plist
+      # ------------------------------------------------------------------
+      - name: Place GoogleService-Info.plist
+        env:
+          PLIST_CONTENTS: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}
+        run: |
+          if [ -n "$PLIST_CONTENTS" ]; then
+            echo "$PLIST_CONTENTS" > ios/Runner/GoogleService-Info.plist
+            echo "Using real GoogleService-Info.plist"
+          else
+            cat > ios/Runner/GoogleService-Info.plist << 'DUMY'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CLIENT_ID</key>
+              <string>dummy</string>
+              <key>REVERSED_CLIENT_ID</key>
+              <string>dummy</string>
+              <key>API_KEY</key>
+              <string>dummy</string>
+              <key>GCM_SENDER_ID</key>
+              <string>dummy</string>
+              <key>PLIST_VERSION</key>
+              <string>1</string>
+              <key>BUNDLE_ID</key>
+              <string>com.example.biogas</string>
+              <key>PROJECT_ID</key>
+              <string>dummy</string>
+              <key>STORAGE_BUCKET</key>
+              <string>dummy</string>
+              <key>IS_ADS_ENABLED</key>
+              <false/>
+              <key>IS_ANALYTICS_ENABLED</key>
+              <false/>
+              <key>IS_APPINVITE_ENABLED</key>
+              <true/>
+              <key>IS_GCM_ENABLED</key>
+              <true/>
+              <key>IS_SIGNIN_ENABLED</key>
+              <true/>
+              <key>GOOGLE_APP_ID</key>
+              <string>dummy</string>
+              <key>DATABASE_URL</key>
+              <string>https://dummy.firebaseio.com</string>
+          </dict>
+          </plist>
+          DUMY
+            echo "Using dummy GoogleService-Info.plist"
+          fi
+
+      # ------------------------------------------------------------------
+      # 2. Patch Info.plist
+      # ------------------------------------------------------------------
+      - name: Patch Info.plist
+        run: |
+          python3 - <<'PYEOF'
+          import plistlib, pathlib
+          p = pathlib.Path("ios/Runner/Info.plist")
+          with p.open("rb") as f:
+              data = plistlib.load(f)
+          data.setdefault("NSAppTransportSecurity", {})
+          data["NSAppTransportSecurity"]["NSAllowsArbitraryLoads"] = True
+          modes = data.setdefault("UIBackgroundModes", [])
+          for m in ["fetch", "remote-notification"]:
+              if m not in modes:
+                  modes.append(m)
+          with p.open("wb") as f:
+              plistlib.dump(data, f, fmt=plistlib.FMT_XML)
+          print("Info.plist patched OK")
+          PYEOF
+
+      # ------------------------------------------------------------------
+      # 3. Write Podfile (minimal – signing changes come later)
+      # ------------------------------------------------------------------
+      - name: Write Podfile
+        run: |
+          cat > ios/Podfile << 'PODEOF'
+          platform :ios, '13.0'
+          ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+          project 'Runner', {
+            'Debug'   => :debug,
+            'Profile' => :release,
+            'Release' => :release,
+          }
+
+          def flutter_root
+            generated = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+            raise "#{generated} must exist. Run flutter pub get first." unless File.exist?(generated)
+            File.foreach(generated) do |line|
+              m = line.match(/FLUTTER_ROOT\=(.*)/)
+              return m[1].strip if m
+            end
+            raise "FLUTTER_ROOT not found in #{generated}."
+          end
+
+          require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+          flutter_ios_podfile_setup
+
+          target 'Runner' do
+            use_frameworks!
+            flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+
+            target 'RunnerTests' do
+              inherit! :search_paths
+            end
+          end
+
+          post_install do |installer|
+            installer.pods_project.build_configurations.each do |config|
+              config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+            end
+
+            installer.pods_project.targets.each do |target|
+              flutter_additional_ios_build_settings(target)
+              target.build_configurations.each do |config|
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+                config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+              end
+            end
+
+            Dir.glob(File.join(installer.sandbox.root, 'Target Support Files', '**', '*.xcconfig')).each do |xcconfig|
+              File.open(xcconfig, 'a') { |f| f.puts "\nCLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES = YES" }
+            end
+          end
+          PODEOF
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      # ------------------------------------------------------------------
+      # 4. Override signing settings in all xcconfig files
+      # ------------------------------------------------------------------
+      - name: Override signing in all xcconfig files
+        run: |
+          python3 - <<'PYEOF'
+          import pathlib
+
+          override = """
+          CODE_SIGNING_ALLOWED = NO
+          CODE_SIGNING_REQUIRED = NO
+          CODE_SIGN_IDENTITY = 
+          DEVELOPMENT_TEAM = 0000000000
+          PROVISIONING_PROFILE_SPECIFIER = dummy
+          CODE_SIGN_STYLE = Manual
+          CODE_SIGN_ENTITLEMENTS = 
+          """
+
+          for xcconfig in pathlib.Path("ios").rglob("*.xcconfig"):
+              if not xcconfig.is_file():
+                  continue
+              content = xcconfig.read_text()
+              lines = content.splitlines(keepends=True)
+              clean_lines = []
+              for line in lines:
+                  if not any(key in line for key in [
+                      "DEVELOPMENT_TEAM",
+                      "CODE_SIGNING_REQUIRED",
+                      "CODE_SIGNING_ALLOWED",
+                      "CODE_SIGN_IDENTITY",
+                      "PROVISIONING_PROFILE_SPECIFIER",
+                      "CODE_SIGN_STYLE",
+                      "CODE_SIGN_ENTITLEMENTS"
+                  ]):
+                      clean_lines.append(line)
+              new_content = ''.join(clean_lines) + override
+              xcconfig.write_text(new_content)
+              print(f"Processed: {xcconfig}")
+
+          print("All xcconfig files now end with signing-disabled overrides.")
+          PYEOF
+
+      # ------------------------------------------------------------------
+      # 5. 🔥 Set dummy team & disable signing via xcodeproj (Ruby)
+      # ------------------------------------------------------------------
+      - name: Set dummy team & disable signing via Xcodeproj
+        run: |
+          ruby - <<'RUBY'
+          require 'xcodeproj'
+
+          project_path = 'ios/Runner.xcodeproj'
+          project = Xcodeproj::Project.open(project_path)
+
+          target_names = ['Runner', 'RunnerTests']
+
+          project.targets.each do |target|
+            next unless target_names.include?(target.name)
+            puts "Configuring target: #{target.name}"
+            target.build_configurations.each do |config|
+              puts "  - #{config.name}"
+              config.build_settings['DEVELOPMENT_TEAM'] = '0000000000'
+              config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = 'dummy'
+              config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+              config.build_settings['CODE_SIGN_IDENTITY'] = ''
+              config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+              config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+            end
+          end
+
+          project.save
+          puts "✅ Project saved with dummy team and signing disabled."
+          RUBY
+
+      # ------------------------------------------------------------------
+      # 6. Verify dummy team exists (flexible check – accepts any non‑empty value)
+      # ------------------------------------------------------------------
+      - name: Verify dummy team in pbxproj
+        run: |
+          python3 - <<'PYEOF'
+          import pathlib, re
+
+          pbx = pathlib.Path("ios/Runner.xcodeproj/project.pbxproj").read_text()
+
+          # Find lines like: DEVELOPMENT_TEAM = "0000000000";  OR  DEVELOPMENT_TEAM = 0000000000;
+          match = re.search(r'DEVELOPMENT_TEAM\s*=\s*"?(\S+?)"?\s*;', pbx)
+          if match:
+              team_value = match.group(1).strip()
+              if team_value and team_value != '""':
+                  print(f"✅ DEVELOPMENT_TEAM found with value: {team_value}")
+              else:
+                  print("❌ ERROR: DEVELOPMENT_TEAM is empty or quotes only!")
+                  exit(1)
+          else:
+              print("❌ ERROR: DEVELOPMENT_TEAM line not found in pbxproj!")
+              exit(1)
+          PYEOF
+
+      # ------------------------------------------------------------------
+      # 7. Build unsigned app
+      # ------------------------------------------------------------------
+      - name: Build unsigned app
+        run: flutter build ios --release --no-codesign
+
+      # ------------------------------------------------------------------
+      # 8. Verify binary & package IPA
+      # ------------------------------------------------------------------
+      - name: Verify binary exists
+        run: |
+          APP="build/ios/iphoneos/Runner.app"
+          BIN="$APP/Runner"
+          [ -d "$APP" ] || { echo "Runner.app missing"; exit 1; }
+          [ -f "$BIN" ] || { echo "Binary missing — assemble failed"; ls -lah "$APP"; exit 1; }
+          BIN_BYTES=$(stat -f%z "$BIN")
+          echo "App: $(du -sh $APP | cut -f1)  Binary: $(du -sh $BIN | cut -f1)  (${BIN_BYTES} bytes)"
+          [ "$BIN_BYTES" -gt 1000000 ] || echo "WARNING: binary suspiciously small"
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r angklung.ipa Payload/
+          echo "IPA: $(du -sh angklung.ipa)"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: angklung.ipa
+          path: angklung.ipa
