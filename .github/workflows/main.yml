@@ -287,4 +287,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: angklung + games.ipa
-          path: gamese.ipa
+          path: games.ipa
