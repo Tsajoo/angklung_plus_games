@@ -25,7 +25,7 @@ jobs:
       - name: Regenerate iOS project
         run: |
           rm -rf ios/ android/
-          flutter create --org com.example --project-name angklung --platforms=android,ios .
+          flutter create --org com.jockey --project-name angklung --platforms=android,ios .
 
       # ------------------------------------------------------------------
       # 1. Place GoogleService-Info.plist
@@ -280,11 +280,11 @@ jobs:
         run: |
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
-          zip -r angklung.ipa Payload/
-          echo "IPA: $(du -sh angklung.ipa)"
+          zip -r games.ipa Payload/
+          echo "IPA: $(du -sh games.ipa)"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: angklung.ipa
-          path: angklung.ipa
+          name: angklung + games.ipa
+          path: gamese.ipa
