@@ -51,8 +51,6 @@ jobs:
               else:
                   print(f"No changes needed for {label}")
 
-          # A. SDK versions: min 21 (covers Android 9/API 28 comfortably),
-          #    compile/target 35 (required by audioplayers etc.)
           patch("android/app/build.gradle", [
               (r"flutter\.minSdkVersion", "21"),
               (r"minSdkVersion\s+\d+", "minSdkVersion 21"),
@@ -60,7 +58,6 @@ jobs:
               (r"flutter\.targetSdkVersion", "35"),
           ], "min/compile/target SDK")
 
-          # B. Kotlin version
           patch("android/settings.gradle", [
               (r'id "org\.jetbrains\.kotlin\.android" version "[^"]*"',
                'id "org.jetbrains.kotlin.android" version "1.9.24"'),
@@ -71,7 +68,6 @@ jobs:
                "ext.kotlin_version = '1.9.24'"),
           ], "Kotlin version (build.gradle)")
 
-          # C. AGP version
           patch("android/settings.gradle", [
               (r'id "com\.android\.application" version "[^"]*"',
                'id "com.android.application" version "8.3.2"'),
@@ -82,13 +78,11 @@ jobs:
                "classpath 'com.android.tools.build:gradle:8.3.2'"),
           ], "AGP version (build.gradle)")
 
-          # D. Gradle wrapper version
           patch("android/gradle/wrapper/gradle-wrapper.properties", [
               (r"gradle-[0-9.]*-all\.zip", "gradle-8.4-all.zip"),
               (r"gradle-[0-9.]*-bin\.zip", "gradle-8.4-bin.zip"),
           ], "Gradle wrapper version")
 
-          # E. Force NDK to 25.1.8937393, replacing any existing ndkVersion line
           gradle_path = root / "android/app/build.gradle"
           gradle_text = gradle_path.read_text()
 
@@ -108,8 +102,6 @@ jobs:
               print("Inserted new ndkVersion line")
           gradle_path.write_text(gradle_text)
 
-          # F. Add explicit ABI filters (prevents native lib crashes across
-          #    the arm/arm64 device range — Pixel 3a is arm64-v8a)
           gradle_text = gradle_path.read_text()
           if "abiFilters" not in gradle_text:
               gradle_text = re.sub(
@@ -123,8 +115,6 @@ jobs:
           else:
               print("abiFilters already present")
 
-          # G. Enable multiDex (guards against 64K method limit crashes
-          #    once several plugins are combined)
           gradle_text = gradle_path.read_text()
           if "multiDexEnabled" not in gradle_text:
               gradle_text = re.sub(
@@ -138,14 +128,8 @@ jobs:
           else:
               print("multiDex already configured")
 
-          # H. Enable core library desugaring (backports java.time and other
-          #    APIs so plugins using them don't crash on API < 26 devices
-          #    like the Pixel 3a on Android 9 / API 28... actually 28 has
-          #    java.time, but desugaring is still cheap insurance for other
-          #    Java 8+ features some plugins rely on)
           gradle_text = gradle_path.read_text()
           if "coreLibraryDesugaring" not in gradle_text:
-              # add compileOptions flag
               if "compileOptions" in gradle_text:
                   gradle_text = re.sub(
                       r"compileOptions\s*\{",
@@ -160,7 +144,6 @@ jobs:
                       gradle_text,
                       count=1,
                   )
-              # add dependency
               if "dependencies {" in gradle_text:
                   gradle_text = re.sub(
                       r"dependencies\s*\{",
@@ -175,8 +158,6 @@ jobs:
           else:
               print("Core library desugaring already configured")
 
-          # I. Manifest: INTERNET permission + explicit exported (correct for
-          #    API 31+ requirement, harmless on API 28)
           manifest_path = root / "android/app/src/main/AndroidManifest.xml"
           manifest_text = manifest_path.read_text()
 
@@ -224,6 +205,9 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Generate app icons
+        run: dart run flutter_launcher_icons
 
       - name: Build Release APK
         run: flutter build apk --release
