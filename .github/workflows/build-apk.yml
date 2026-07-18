@@ -1,8 +1,7 @@
 name: Build Flutter APK
 
 on:
-  workflow_dispatch: # <-- This creates the manual "Run workflow" button. 
-                     # We removed 'push' and 'pull_request' so it won't run automatically.
+  workflow_dispatch:
 
 jobs:
   build-apk:
@@ -23,7 +22,15 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.24.0' 
+          flutter-version: '3.24.0'
+
+      # ---------------------------------------------------------
+      # ADD THIS STEP: Regenerate the missing Android folder
+      # ---------------------------------------------------------
+      - name: Regenerate Android project
+        run: |
+          rm -rf android/
+          flutter create --org com.jockey --project-name angklung --platforms=android .
 
       - name: Install dependencies
         run: flutter pub get
