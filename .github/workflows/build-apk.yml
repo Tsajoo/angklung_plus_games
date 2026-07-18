@@ -51,6 +51,7 @@ jobs:
               else:
                   print(f"No changes needed for {label}")
 
+          # A. SDK versions
           patch("android/app/build.gradle", [
               (r"flutter\.minSdkVersion", "21"),
               (r"minSdkVersion\s+\d+", "minSdkVersion 21"),
@@ -58,6 +59,7 @@ jobs:
               (r"flutter\.targetSdkVersion", "35"),
           ], "min/compile/target SDK")
 
+          # B. Kotlin version
           patch("android/settings.gradle", [
               (r'id "org\.jetbrains\.kotlin\.android" version "[^"]*"',
                'id "org.jetbrains.kotlin.android" version "1.9.24"'),
@@ -68,6 +70,7 @@ jobs:
                "ext.kotlin_version = '1.9.24'"),
           ], "Kotlin version (build.gradle)")
 
+          # C. AGP version
           patch("android/settings.gradle", [
               (r'id "com\.android\.application" version "[^"]*"',
                'id "com.android.application" version "8.3.2"'),
@@ -78,11 +81,13 @@ jobs:
                "classpath 'com.android.tools.build:gradle:8.3.2'"),
           ], "AGP version (build.gradle)")
 
+          # D. Gradle wrapper version
           patch("android/gradle/wrapper/gradle-wrapper.properties", [
               (r"gradle-[0-9.]*-all\.zip", "gradle-8.4-all.zip"),
               (r"gradle-[0-9.]*-bin\.zip", "gradle-8.4-bin.zip"),
           ], "Gradle wrapper version")
 
+          # E. Force NDK to 25.1.8937393
           gradle_path = root / "android/app/build.gradle"
           gradle_text = gradle_path.read_text()
 
@@ -102,6 +107,7 @@ jobs:
               print("Inserted new ndkVersion line")
           gradle_path.write_text(gradle_text)
 
+          # F. Explicit ABI filters
           gradle_text = gradle_path.read_text()
           if "abiFilters" not in gradle_text:
               gradle_text = re.sub(
@@ -115,6 +121,7 @@ jobs:
           else:
               print("abiFilters already present")
 
+          # G. Enable multiDex
           gradle_text = gradle_path.read_text()
           if "multiDexEnabled" not in gradle_text:
               gradle_text = re.sub(
@@ -128,6 +135,7 @@ jobs:
           else:
               print("multiDex already configured")
 
+          # H. Core library desugaring
           gradle_text = gradle_path.read_text()
           if "coreLibraryDesugaring" not in gradle_text:
               if "compileOptions" in gradle_text:
@@ -158,6 +166,7 @@ jobs:
           else:
               print("Core library desugaring already configured")
 
+          # I. Manifest: INTERNET permission + explicit exported
           manifest_path = root / "android/app/src/main/AndroidManifest.xml"
           manifest_text = manifest_path.read_text()
 
@@ -183,6 +192,16 @@ jobs:
               print("android:exported already present or MainActivity tag not found as expected")
 
           manifest_path.write_text(manifest_text)
+
+          # J. Set custom app label
+          manifest_text = manifest_path.read_text()
+          manifest_text = re.sub(
+              r'android:label="[^"]*"',
+              'android:label="Angklung IoT"',
+              manifest_text,
+          )
+          manifest_path.write_text(manifest_text)
+          print("Set app label")
 
           print("All Android build configurations patched successfully.")
           PYEOF
