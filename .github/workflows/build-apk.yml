@@ -24,46 +24,54 @@ jobs:
           channel: 'stable'
           flutter-version: '3.24.0'
 
-      # 1. Regenerate Android project (NO hardcoded project name, so it matches pubspec.yaml perfectly)
+      # 1. Regenerate Android project (Matches your pubspec.yaml name automatically)
       - name: Regenerate Android project
         run: |
           rm -rf android/
           flutter create --org com.jockey --platforms=android .
 
-      # 2. COMPREHENSIVE BUILD FIX & CRASH PREVENTION
+      # 2. SAFE BUILD FIX (No XML mangling)
       - name: Fix Android Build Configuration
         run: |
-          echo "🔧 Patching Android build files to prevent force closes..."
+          echo "🔧 Patching Android build files safely..."
           
-          # A. Guarantee Android 12+ compatibility (Prevents instant crash on Android 12-15)
-          sed -i 's/android:name="\.MainActivity"/android:name=".MainActivity"\n            android:exported="true"/g' android/app/src/main/AndroidManifest.xml
-          
-          # B. Add Internet Permission (Required by audioplayers and many other plugins)
-          sed -i '/<manifest>/a\    <uses-permission android:name="android.permission.android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
-          # Fix the double android.permission typo from above if it occurs, ensuring clean XML:
-          sed -i 's/android\.permission\.android\.permission\.INTERNET/android.permission.INTERNET/g' android/app/src/main/AndroidManifest.xml
-
-          # C. Update SDK to 35 (Required by audioplayers)
+          # A. Update SDK to 35 (Required by audioplayers)
           sed -i 's/flutter\.compileSdkVersion/35/g' android/app/build.gradle
           sed -i 's/flutter\.targetSdkVersion/35/g' android/app/build.gradle
           
-          # D. Update Kotlin to 1.9.24 (Required by shared_preferences)
+          # B. Update Kotlin to 1.9.24 (Required by shared_preferences)
           sed -i 's/id "org\.jetbrains\.kotlin\.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "1.9.24"/g' android/settings.gradle
           sed -i "s/ext\.kotlin_version = ['\"][^'\"]*['\"]/ext.kotlin_version = '1.9.24'/g" android/build.gradle
           
-          # E. Update Android Gradle Plugin (AGP) to 8.3.2 (Fixes SDK 35 aapt2 crash)
+          # C. Update Android Gradle Plugin (AGP) to 8.3.2
           sed -i 's/id "com\.android\.application" version "[^"]*"/id "com.android.application" version "8.3.2"/g' android/settings.gradle
           sed -i "s/classpath 'com\.android\.tools\.build:gradle:[^']*'/classpath 'com.android.tools.build:gradle:8.3.2'/g" android/build.gradle
-          sed -i 's/classpath "com\.android\.tools\.build:gradle:[^"]*"/classpath "com.android.tools.build:gradle:8.3.2"/g' android/build.gradle
+          sed -i 's/classpath "com\.android\.tools\.build:gradle:[^"]*"/classpath "com.android.tools.build:gradle:8.3.2"/g" android/build.gradle
 
-          # F. Update Gradle Wrapper to 8.4 (Required by AGP 8.3.2)
+          # D. Update Gradle Wrapper to 8.4 (Required by AGP 8.3.2)
           sed -i 's/gradle-[0-9.]*-all.zip/gradle-8.4-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
           sed -i 's/gradle-[0-9.]*-bin.zip/gradle-8.4-bin.zip/g' android/gradle/wrapper/gradle-wrapper.properties
 
-          # G. Update NDK to 25.1.8937393 (Silences NDK warnings)
+          # E. Update NDK to 25.1.8937393 (Silences NDK warnings)
           sed -i '/android {/a\    ndkVersion "25.1.8937393"' android/app/build.gradle
+
+          # F. SAFELY add INTERNET permission using Python (Prevents XML corruption)
+          python3 - <<'PYEOF'
+          import pathlib
+          manifest_path = pathlib.Path("android/app/src/main/AndroidManifest.xml")
+          content = manifest_path.read_text()
+          if 'android.permission.INTERNET' not in content:
+              content = content.replace(
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">', 
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.INTERNET" />'
+              )
+              manifest_path.write_text(content)
+              print("✅ Safely added INTERNET permission.")
+          else:
+              print("✅ INTERNET permission already present.")
+          PYEOF
           
-          echo "✅ Successfully patched Android build configuration."
+          echo "✅ All Android build configurations patched successfully."
 
       - name: Install dependencies
         run: flutter pub get
