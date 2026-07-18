@@ -30,7 +30,7 @@ jobs:
           rm -rf android/
           flutter create --org com.jockey --project-name angklung --platforms=android .
 
-      # 2. COMPREHENSIVE BUILD FIX (SDK 35 + AGP 8.3.2 + Kotlin 1.9.24)
+      # 2. COMPREHENSIVE BUILD FIX (SDK 35 + AGP 8.3.2 + Kotlin 1.9.24 + Gradle 8.4)
       - name: Fix Android Build Configuration
         run: |
           echo "🔧 Patching Android build files..."
@@ -47,8 +47,14 @@ jobs:
           sed -i 's/id "com\.android\.application" version "[^"]*"/id "com.android.application" version "8.3.2"/g' android/settings.gradle
           sed -i "s/classpath 'com\.android\.tools\.build:gradle:[^']*'/classpath 'com.android.tools.build:gradle:8.3.2'/g" android/build.gradle
           sed -i 's/classpath "com\.android\.tools\.build:gradle:[^"]*"/classpath "com.android.tools.build:gradle:8.3.2"/g' android/build.gradle
+
+          # D. Update Gradle Wrapper to 8.4 (REQUIRED by AGP 8.3.2)
+          sed -i 's/gradle-[0-9.]*-all.zip/gradle-8.4-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/gradle-[0-9.]*-bin.zip/gradle-8.4-bin.zip/g' android/gradle/wrapper/gradle-wrapper.properties
           
           echo "✅ Successfully patched Android build configuration."
+          echo "--- Verifying Gradle version ---"
+          grep "distributionUrl" android/gradle/wrapper/gradle-wrapper.properties
 
       - name: Install dependencies
         run: flutter pub get
