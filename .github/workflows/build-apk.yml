@@ -27,16 +27,7 @@ jobs:
           rm -rf android/
           flutter create --org com.jockey --platforms=android .
 
-# 2. SAFE BUILD FIX — all done in Python to avoid shell-quoting bugs
-      - name: Write patch script
-        run: |
-          cat > android_patch.py <<'PYEOF'
-          ... (same python content as above) ...
-          PYEOF
-
-      - name: Run patch script
-        run: python3 android_patch.py
-
+      # 2. SAFE BUILD FIX — all done in Python to avoid shell-quoting bugs
       - name: Write patch script
         run: |
           cat > android_patch.py <<'PYEOF'
@@ -48,7 +39,7 @@ jobs:
           def patch(path, replacements, label):
               p = root / path
               if not p.exists():
-                  print(f"⚠️  Skipped {label}: {path} not found")
+                  print(f"Skipped {label}: {path} not found")
                   return
               text = p.read_text()
               original = text
@@ -56,17 +47,15 @@ jobs:
                   text = re.sub(pattern, repl, text)
               if text != original:
                   p.write_text(text)
-                  print(f"✅ Patched {label}")
+                  print(f"Patched {label}")
               else:
-                  print(f"ℹ️  No changes needed for {label}")
+                  print(f"No changes needed for {label}")
 
-          # A. Update SDK to 35 (Required by audioplayers)
           patch("android/app/build.gradle", [
               (r"flutter\.compileSdkVersion", "35"),
               (r"flutter\.targetSdkVersion", "35"),
           ], "compile/target SDK")
 
-          # B. Update Kotlin to 1.9.24 (Required by shared_preferences)
           patch("android/settings.gradle", [
               (r'id "org\.jetbrains\.kotlin\.android" version "[^"]*"',
                'id "org.jetbrains.kotlin.android" version "1.9.24"'),
@@ -77,7 +66,6 @@ jobs:
                "ext.kotlin_version = '1.9.24'"),
           ], "Kotlin version (build.gradle)")
 
-          # C. Update Android Gradle Plugin (AGP) to 8.3.2
           patch("android/settings.gradle", [
               (r'id "com\.android\.application" version "[^"]*"',
                'id "com.android.application" version "8.3.2"'),
@@ -88,13 +76,11 @@ jobs:
                "classpath 'com.android.tools.build:gradle:8.3.2'"),
           ], "AGP version (build.gradle)")
 
-          # D. Update Gradle Wrapper to 8.4 (Required by AGP 8.3.2)
           patch("android/gradle/wrapper/gradle-wrapper.properties", [
               (r"gradle-[0-9.]*-all\.zip", "gradle-8.4-all.zip"),
               (r"gradle-[0-9.]*-bin\.zip", "gradle-8.4-bin.zip"),
           ], "Gradle wrapper version")
 
-          # E. Update NDK to 25.1.8937393 (Silences NDK warnings) — only if absent
           gradle_path = root / "android/app/build.gradle"
           gradle_text = gradle_path.read_text()
           if "ndkVersion" not in gradle_text:
@@ -102,11 +88,10 @@ jobs:
                   "android {", 'android {\n    ndkVersion "25.1.8937393"', 1
               )
               gradle_path.write_text(gradle_text)
-              print("✅ Added ndkVersion")
+              print("Added ndkVersion")
           else:
-              print("ℹ️  ndkVersion already present")
+              print("ndkVersion already present")
 
-          # F. Safely add INTERNET permission
           manifest_path = root / "android/app/src/main/AndroidManifest.xml"
           manifest_text = manifest_path.read_text()
           if "android.permission.INTERNET" not in manifest_text:
@@ -117,11 +102,11 @@ jobs:
                   count=1,
               )
               manifest_path.write_text(manifest_text)
-              print("✅ Added INTERNET permission")
+              print("Added INTERNET permission")
           else:
-              print("ℹ️  INTERNET permission already present")
+              print("INTERNET permission already present")
 
-          print("✅ All Android build configurations patched successfully.")
+          print("All Android build configurations patched successfully.")
           PYEOF
 
       - name: Run patch script
