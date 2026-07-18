@@ -30,27 +30,30 @@ jobs:
           rm -rf android/
           flutter create --org com.jockey --project-name angklung --platforms=android .
 
-      # 2. COMPREHENSIVE BUILD FIX (SDK 35 + AGP 8.3.2 + Kotlin 1.9.24 + Gradle 8.4)
+      # 2. COMPREHENSIVE BUILD FIX
       - name: Fix Android Build Configuration
         run: |
           echo "🔧 Patching Android build files..."
           
-          # A. Update compileSdk and targetSdk to 35 (required by audioplayers)
+          # A. Update SDK to 35
           sed -i 's/flutter\.compileSdkVersion/35/g' android/app/build.gradle
           sed -i 's/flutter\.targetSdkVersion/35/g' android/app/build.gradle
           
-          # B. Update Kotlin to 1.9.24 (required by shared_preferences)
+          # B. Update Kotlin to 1.9.24
           sed -i 's/id "org\.jetbrains\.kotlin\.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "1.9.24"/g' android/settings.gradle
           sed -i "s/ext\.kotlin_version = ['\"][^'\"]*['\"]/ext.kotlin_version = '1.9.24'/g" android/build.gradle
           
-          # C. Update Android Gradle Plugin (AGP) to 8.3.2 (FIXES the aapt2 SDK 35 crash)
+          # C. Update AGP to 8.3.2
           sed -i 's/id "com\.android\.application" version "[^"]*"/id "com.android.application" version "8.3.2"/g' android/settings.gradle
           sed -i "s/classpath 'com\.android\.tools\.build:gradle:[^']*'/classpath 'com.android.tools.build:gradle:8.3.2'/g" android/build.gradle
-          sed -i 's/classpath "com\.android\.tools\.build:gradle:[^"]*"/classpath "com.android.tools.build:gradle:8.3.2"/g' android/build.gradle
+          sed -i 's/classpath "com\.android\.tools\.build:gradle:[^"]*"/classpath "com.android.tools.build:gradle:8.3.2"/g" android/build.gradle
 
-          # D. Update Gradle Wrapper to 8.4 (REQUIRED by AGP 8.3.2)
+          # D. Update Gradle Wrapper to 8.4
           sed -i 's/gradle-[0-9.]*-all.zip/gradle-8.4-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
           sed -i 's/gradle-[0-9.]*-bin.zip/gradle-8.4-bin.zip/g' android/gradle/wrapper/gradle-wrapper.properties
+
+          # E. Update NDK to 25.1.8937393 (Silences the NDK warning)
+          sed -i '/android {/a\    ndkVersion "25.1.8937393"' android/app/build.gradle
           
           echo "✅ Successfully patched Android build configuration."
           echo "--- Verifying Gradle version ---"
