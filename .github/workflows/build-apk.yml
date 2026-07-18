@@ -24,13 +24,13 @@ jobs:
       # 0. Fail fast if the icon file is missing — no silent fallback
       - name: Verify icon asset exists
         run: |
-          if [ ! -f "assets/icon/icon.png" ]; then
-            echo "❌ assets/icon/icon.png not found in the repo."
+          if [ ! -f "assets/icon.png" ]; then
+            echo "❌ assets/icon.png not found in the repo."
             echo "   Add your icon file at that exact path and commit it."
             exit 1
           fi
-          echo "✅ Found assets/icon/icon.png"
-          file assets/icon/icon.png
+          echo "✅ Found assets/icon.png"
+          file assets/icon.png
 
       # 1. Regenerate Android project (Matches your pubspec.yaml name automatically)
       - name: Regenerate Android project
