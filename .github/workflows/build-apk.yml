@@ -21,13 +21,85 @@ jobs:
           channel: 'stable'
           flutter-version: '3.24.0'
 
+      # 0. Fail fast if the icon file is missing — no silent fallback
+      - name: Verify icon asset exists
+        run: |
+          if [ ! -f "assets/icon/icon.png" ]; then
+            echo "❌ assets/icon/icon.png not found in the repo."
+            echo "   Add your icon file at that exact path and commit it."
+            exit 1
+          fi
+          echo "✅ Found assets/icon/icon.png"
+          file assets/icon/icon.png
+
       # 1. Regenerate Android project (Matches your pubspec.yaml name automatically)
       - name: Regenerate Android project
         run: |
           rm -rf android/
           flutter create --org com.jockey --platforms=android .
 
-      # 2. SAFE BUILD FIX — all done in Python to avoid shell-quoting bugs
+      # 2. Patch pubspec.yaml to add flutter_launcher_icons config (idempotent)
+      - name: Write pubspec patch script
+        run: |
+          cat > pubspec_patch.py <<'PYEOF'
+          import pathlib
+
+          p = pathlib.Path("pubspec.yaml")
+          text = p.read_text()
+
+          if "flutter_launcher_icons:" not in text:
+              # Add dev_dependency
+              if "dev_dependencies:" in text:
+                  text = text.replace(
+                      "dev_dependencies:",
+                      "dev_dependencies:\n  flutter_launcher_icons: ^0.13.1",
+                      1,
+                  )
+              else:
+                  text += "\ndev_dependencies:\n  flutter_launcher_icons: ^0.13.1\n"
+
+              # Add config block at end of file
+              text += (
+                  "\nflutter_launcher_icons:\n"
+                  "  android: true\n"
+                  "  ios: false\n"
+                  '  image_path: "assets/icon/icon.png"\n'
+                  "  min_sdk_android: 21\n"
+                  '  adaptive_icon_background: "#FCE4EC"\n'
+                  '  adaptive_icon_foreground: "assets/icon/icon.png"\n'
+              )
+              p.write_text(text)
+              print("✅ Added flutter_launcher_icons config to pubspec.yaml")
+          else:
+              print("ℹ️  flutter_launcher_icons config already present in pubspec.yaml")
+
+          # Make sure assets/icon/ is declared under flutter: assets: too,
+          # so the file is bundled (harmless even though launcher_icons
+          # reads it directly from disk, not via the asset bundle)
+          if "assets/icon/" not in text and "flutter:" in text:
+              if "assets:" in text:
+                  text = text.replace(
+                      "assets:",
+                      "assets:\n    - assets/icon/icon.png",
+                      1,
+                  )
+              else:
+                  text = text.replace(
+                      "flutter:",
+                      "flutter:\n  assets:\n    - assets/icon/icon.png",
+                      1,
+                  )
+              p.write_text(text)
+              print("✅ Declared assets/icon/icon.png under flutter: assets:")
+          PYEOF
+
+      - name: Run pubspec patch script
+        run: python3 pubspec_patch.py
+
+      - name: Show patched pubspec.yaml (debug)
+        run: cat pubspec.yaml
+
+      # 3. SAFE BUILD FIX — all done in Python to avoid shell-quoting bugs
       - name: Write patch script
         run: |
           cat > android_patch.py <<'PYEOF'
@@ -51,7 +123,6 @@ jobs:
               else:
                   print(f"No changes needed for {label}")
 
-          # A. SDK versions
           patch("android/app/build.gradle", [
               (r"flutter\.minSdkVersion", "21"),
               (r"minSdkVersion\s+\d+", "minSdkVersion 21"),
@@ -59,7 +130,6 @@ jobs:
               (r"flutter\.targetSdkVersion", "35"),
           ], "min/compile/target SDK")
 
-          # B. Kotlin version
           patch("android/settings.gradle", [
               (r'id "org\.jetbrains\.kotlin\.android" version "[^"]*"',
                'id "org.jetbrains.kotlin.android" version "1.9.24"'),
@@ -70,7 +140,6 @@ jobs:
                "ext.kotlin_version = '1.9.24'"),
           ], "Kotlin version (build.gradle)")
 
-          # C. AGP version
           patch("android/settings.gradle", [
               (r'id "com\.android\.application" version "[^"]*"',
                'id "com.android.application" version "8.3.2"'),
@@ -81,13 +150,11 @@ jobs:
                "classpath 'com.android.tools.build:gradle:8.3.2'"),
           ], "AGP version (build.gradle)")
 
-          # D. Gradle wrapper version
           patch("android/gradle/wrapper/gradle-wrapper.properties", [
               (r"gradle-[0-9.]*-all\.zip", "gradle-8.4-all.zip"),
               (r"gradle-[0-9.]*-bin\.zip", "gradle-8.4-bin.zip"),
           ], "Gradle wrapper version")
 
-          # E. Force NDK to 25.1.8937393
           gradle_path = root / "android/app/build.gradle"
           gradle_text = gradle_path.read_text()
 
@@ -107,7 +174,6 @@ jobs:
               print("Inserted new ndkVersion line")
           gradle_path.write_text(gradle_text)
 
-          # F. Explicit ABI filters
           gradle_text = gradle_path.read_text()
           if "abiFilters" not in gradle_text:
               gradle_text = re.sub(
@@ -121,7 +187,6 @@ jobs:
           else:
               print("abiFilters already present")
 
-          # G. Enable multiDex
           gradle_text = gradle_path.read_text()
           if "multiDexEnabled" not in gradle_text:
               gradle_text = re.sub(
@@ -135,7 +200,6 @@ jobs:
           else:
               print("multiDex already configured")
 
-          # H. Core library desugaring
           gradle_text = gradle_path.read_text()
           if "coreLibraryDesugaring" not in gradle_text:
               if "compileOptions" in gradle_text:
@@ -166,7 +230,6 @@ jobs:
           else:
               print("Core library desugaring already configured")
 
-          # I. Manifest: INTERNET permission + explicit exported
           manifest_path = root / "android/app/src/main/AndroidManifest.xml"
           manifest_text = manifest_path.read_text()
 
@@ -193,7 +256,6 @@ jobs:
 
           manifest_path.write_text(manifest_text)
 
-          # J. Set custom app label
           manifest_text = manifest_path.read_text()
           manifest_text = re.sub(
               r'android:label="[^"]*"',
@@ -225,8 +287,20 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # 4. Snapshot the default icons BEFORE generation, so we can prove
+      #    they actually changed after
+      - name: Snapshot default mipmap icons (debug)
+        run: |
+          echo "--- Before generation ---"
+          find android/app/src/main/res -iname "ic_launcher*" -exec md5sum {} \;
+
       - name: Generate app icons
         run: dart run flutter_launcher_icons
+
+      - name: Verify mipmap icons actually changed (debug)
+        run: |
+          echo "--- After generation ---"
+          find android/app/src/main/res -iname "ic_launcher*" -exec md5sum {} \;
 
       - name: Build Release APK
         run: flutter build apk --release
