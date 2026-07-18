@@ -24,40 +24,46 @@ jobs:
           channel: 'stable'
           flutter-version: '3.24.0'
 
-      # 1. Regenerate the missing Android folder
+      # 1. Regenerate Android project (NO hardcoded project name, so it matches pubspec.yaml perfectly)
       - name: Regenerate Android project
         run: |
           rm -rf android/
-          flutter create --org com.jockey --project-name angklung --platforms=android .
+          flutter create --org com.jockey --platforms=android .
 
-      # 2. COMPREHENSIVE BUILD FIX
+      # 2. COMPREHENSIVE BUILD FIX & CRASH PREVENTION
       - name: Fix Android Build Configuration
         run: |
-          echo "🔧 Patching Android build files..."
+          echo "🔧 Patching Android build files to prevent force closes..."
           
-          # A. Update SDK to 35
+          # A. Guarantee Android 12+ compatibility (Prevents instant crash on Android 12-15)
+          sed -i 's/android:name="\.MainActivity"/android:name=".MainActivity"\n            android:exported="true"/g' android/app/src/main/AndroidManifest.xml
+          
+          # B. Add Internet Permission (Required by audioplayers and many other plugins)
+          sed -i '/<manifest>/a\    <uses-permission android:name="android.permission.android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
+          # Fix the double android.permission typo from above if it occurs, ensuring clean XML:
+          sed -i 's/android\.permission\.android\.permission\.INTERNET/android.permission.INTERNET/g' android/app/src/main/AndroidManifest.xml
+
+          # C. Update SDK to 35 (Required by audioplayers)
           sed -i 's/flutter\.compileSdkVersion/35/g' android/app/build.gradle
           sed -i 's/flutter\.targetSdkVersion/35/g' android/app/build.gradle
           
-          # B. Update Kotlin to 1.9.24
+          # D. Update Kotlin to 1.9.24 (Required by shared_preferences)
           sed -i 's/id "org\.jetbrains\.kotlin\.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "1.9.24"/g' android/settings.gradle
           sed -i "s/ext\.kotlin_version = ['\"][^'\"]*['\"]/ext.kotlin_version = '1.9.24'/g" android/build.gradle
           
-          # C. Update AGP to 8.3.2
+          # E. Update Android Gradle Plugin (AGP) to 8.3.2 (Fixes SDK 35 aapt2 crash)
           sed -i 's/id "com\.android\.application" version "[^"]*"/id "com.android.application" version "8.3.2"/g' android/settings.gradle
           sed -i "s/classpath 'com\.android\.tools\.build:gradle:[^']*'/classpath 'com.android.tools.build:gradle:8.3.2'/g" android/build.gradle
-          sed -i 's/classpath "com\.android\.tools\.build:gradle:[^"]*"/classpath "com.android.tools.build:gradle:8.3.2"/g" android/build.gradle
+          sed -i 's/classpath "com\.android\.tools\.build:gradle:[^"]*"/classpath "com.android.tools.build:gradle:8.3.2"/g' android/build.gradle
 
-          # D. Update Gradle Wrapper to 8.4
+          # F. Update Gradle Wrapper to 8.4 (Required by AGP 8.3.2)
           sed -i 's/gradle-[0-9.]*-all.zip/gradle-8.4-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
           sed -i 's/gradle-[0-9.]*-bin.zip/gradle-8.4-bin.zip/g' android/gradle/wrapper/gradle-wrapper.properties
 
-          # E. Update NDK to 25.1.8937393 (Silences the NDK warning)
+          # G. Update NDK to 25.1.8937393 (Silences NDK warnings)
           sed -i '/android {/a\    ndkVersion "25.1.8937393"' android/app/build.gradle
           
           echo "✅ Successfully patched Android build configuration."
-          echo "--- Verifying Gradle version ---"
-          grep "distributionUrl" android/gradle/wrapper/gradle-wrapper.properties
 
       - name: Install dependencies
         run: flutter pub get
@@ -68,6 +74,6 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: angklung-iot-release-apk
+          name: angklung-plus-games-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
