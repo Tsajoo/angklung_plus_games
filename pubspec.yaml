@@ -22,5 +22,9 @@ flutter:
     - assets/notes/
 
 flutter_launcher_icons:
+  android: true
   ios: true
   image_path: "assets/icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#FCE4EC"
+  adaptive_icon_foreground: "assets/icon.png"
