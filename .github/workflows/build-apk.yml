@@ -81,17 +81,30 @@ jobs:
               (r"gradle-[0-9.]*-bin\.zip", "gradle-8.4-bin.zip"),
           ], "Gradle wrapper version")
 
+          # E. Force NDK to 25.1.8937393, replacing any existing ndkVersion line
+          #    (flutter's default template already has one referencing
+          #    flutter.ndkVersion, so we must replace it, not just insert).
           gradle_path = root / "android/app/build.gradle"
           gradle_text = gradle_path.read_text()
-          if "ndkVersion" not in gradle_text:
-              gradle_text = gradle_text.replace(
-                  "android {", 'android {\n    ndkVersion "25.1.8937393"', 1
-              )
-              gradle_path.write_text(gradle_text)
-              print("Added ndkVersion")
-          else:
-              print("ndkVersion already present")
 
+          if re.search(r"^\s*ndkVersion\s*=?\s*.+$", gradle_text, flags=re.MULTILINE):
+              gradle_text = re.sub(
+                  r"^\s*ndkVersion\s*=?\s*.+$",
+                  '    ndkVersion = "25.1.8937393"',
+                  gradle_text,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+              print("Replaced existing ndkVersion line")
+          else:
+              gradle_text = gradle_text.replace(
+                  "android {", 'android {\n    ndkVersion = "25.1.8937393"', 1
+              )
+              print("Inserted new ndkVersion line")
+
+          gradle_path.write_text(gradle_text)
+
+          # F. Safely add INTERNET permission
           manifest_path = root / "android/app/src/main/AndroidManifest.xml"
           manifest_text = manifest_path.read_text()
           if "android.permission.INTERNET" not in manifest_text:
