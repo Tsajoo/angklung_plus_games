@@ -1,7 +1,7 @@
 name: Build Flutter APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Manual button only
 
 jobs:
   build-apk:
@@ -24,13 +24,31 @@ jobs:
           channel: 'stable'
           flutter-version: '3.24.0'
 
-      # ---------------------------------------------------------
-      # ADD THIS STEP: Regenerate the missing Android folder
-      # ---------------------------------------------------------
+      # 1. Regenerate the missing Android folder
       - name: Regenerate Android project
         run: |
           rm -rf android/
           flutter create --org com.jockey --project-name angklung --platforms=android .
+
+      # 2. AUTOMATICALLY FIX THE SDK VERSION ERROR
+      - name: Fix Android SDK version to 35
+        run: |
+          sed -i 's/flutter.compileSdkVersion/35/g' android/app/build.gradle
+          sed -i 's/flutter.targetSdkVersion/35/g' android/app/build.gradle
+          echo "Successfully patched build.gradle to use SDK 35"
+
+      # 3. AUTOMATICALLY FIX THE KOTLIN VERSION ERROR
+      - name: Fix Kotlin version to 1.9.24
+        run: |
+          # Update settings.gradle (used in newer Flutter templates)
+          if [ -f android/settings.gradle ]; then
+            sed -i 's/id "org\.jetbrains\.kotlin\.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "1.9.24"/g' android/settings.gradle
+          fi
+          # Update build.gradle (used in older Flutter templates)
+          if [ -f android/build.gradle ]; then
+            sed -i "s/ext\.kotlin_version = ['\"][^'\"]*['\"]/ext.kotlin_version = '1.9.24'/g" android/build.gradle
+          fi
+          echo "Successfully patched Kotlin version to 1.9.24"
 
       - name: Install dependencies
         run: flutter pub get
