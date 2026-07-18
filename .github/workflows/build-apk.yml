@@ -63,10 +63,10 @@ jobs:
                   "\nflutter_launcher_icons:\n"
                   "  android: true\n"
                   "  ios: false\n"
-                  '  image_path: "assets/icon/icon.png"\n'
+                  '  image_path: "assets/icon.png"\n'
                   "  min_sdk_android: 21\n"
                   '  adaptive_icon_background: "#FCE4EC"\n'
-                  '  adaptive_icon_foreground: "assets/icon/icon.png"\n'
+                  '  adaptive_icon_foreground: "assets/icon.png"\n'
               )
               p.write_text(text)
               print("✅ Added flutter_launcher_icons config to pubspec.yaml")
@@ -80,17 +80,17 @@ jobs:
               if "assets:" in text:
                   text = text.replace(
                       "assets:",
-                      "assets:\n    - assets/icon/icon.png",
+                      "assets:\n    - assets/icon.png",
                       1,
                   )
               else:
                   text = text.replace(
                       "flutter:",
-                      "flutter:\n  assets:\n    - assets/icon/icon.png",
+                      "flutter:\n  assets:\n    - assets/icon.png",
                       1,
                   )
               p.write_text(text)
-              print("✅ Declared assets/icon/icon.png under flutter: assets:")
+              print("✅ Declared assets/icon.png under flutter: assets:")
           PYEOF
 
       - name: Run pubspec patch script
