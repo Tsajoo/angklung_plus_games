@@ -51,11 +51,16 @@ jobs:
               else:
                   print(f"No changes needed for {label}")
 
+          # A. SDK versions: min 21 (covers Android 9/API 28 comfortably),
+          #    compile/target 35 (required by audioplayers etc.)
           patch("android/app/build.gradle", [
+              (r"flutter\.minSdkVersion", "21"),
+              (r"minSdkVersion\s+\d+", "minSdkVersion 21"),
               (r"flutter\.compileSdkVersion", "35"),
               (r"flutter\.targetSdkVersion", "35"),
-          ], "compile/target SDK")
+          ], "min/compile/target SDK")
 
+          # B. Kotlin version
           patch("android/settings.gradle", [
               (r'id "org\.jetbrains\.kotlin\.android" version "[^"]*"',
                'id "org.jetbrains.kotlin.android" version "1.9.24"'),
@@ -66,6 +71,7 @@ jobs:
                "ext.kotlin_version = '1.9.24'"),
           ], "Kotlin version (build.gradle)")
 
+          # C. AGP version
           patch("android/settings.gradle", [
               (r'id "com\.android\.application" version "[^"]*"',
                'id "com.android.application" version "8.3.2"'),
@@ -76,14 +82,13 @@ jobs:
                "classpath 'com.android.tools.build:gradle:8.3.2'"),
           ], "AGP version (build.gradle)")
 
+          # D. Gradle wrapper version
           patch("android/gradle/wrapper/gradle-wrapper.properties", [
               (r"gradle-[0-9.]*-all\.zip", "gradle-8.4-all.zip"),
               (r"gradle-[0-9.]*-bin\.zip", "gradle-8.4-bin.zip"),
           ], "Gradle wrapper version")
 
           # E. Force NDK to 25.1.8937393, replacing any existing ndkVersion line
-          #    (flutter's default template already has one referencing
-          #    flutter.ndkVersion, so we must replace it, not just insert).
           gradle_path = root / "android/app/build.gradle"
           gradle_text = gradle_path.read_text()
 
@@ -101,12 +106,80 @@ jobs:
                   "android {", 'android {\n    ndkVersion = "25.1.8937393"', 1
               )
               print("Inserted new ndkVersion line")
-
           gradle_path.write_text(gradle_text)
 
-          # F. Safely add INTERNET permission
+          # F. Add explicit ABI filters (prevents native lib crashes across
+          #    the arm/arm64 device range — Pixel 3a is arm64-v8a)
+          gradle_text = gradle_path.read_text()
+          if "abiFilters" not in gradle_text:
+              gradle_text = re.sub(
+                  r"defaultConfig\s*\{",
+                  'defaultConfig {\n        ndk {\n            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"\n        }',
+                  gradle_text,
+                  count=1,
+              )
+              gradle_path.write_text(gradle_text)
+              print("Added explicit abiFilters")
+          else:
+              print("abiFilters already present")
+
+          # G. Enable multiDex (guards against 64K method limit crashes
+          #    once several plugins are combined)
+          gradle_text = gradle_path.read_text()
+          if "multiDexEnabled" not in gradle_text:
+              gradle_text = re.sub(
+                  r"defaultConfig\s*\{",
+                  'defaultConfig {\n        multiDexEnabled true',
+                  gradle_text,
+                  count=1,
+              )
+              gradle_path.write_text(gradle_text)
+              print("Enabled multiDex")
+          else:
+              print("multiDex already configured")
+
+          # H. Enable core library desugaring (backports java.time and other
+          #    APIs so plugins using them don't crash on API < 26 devices
+          #    like the Pixel 3a on Android 9 / API 28... actually 28 has
+          #    java.time, but desugaring is still cheap insurance for other
+          #    Java 8+ features some plugins rely on)
+          gradle_text = gradle_path.read_text()
+          if "coreLibraryDesugaring" not in gradle_text:
+              # add compileOptions flag
+              if "compileOptions" in gradle_text:
+                  gradle_text = re.sub(
+                      r"compileOptions\s*\{",
+                      "compileOptions {\n        coreLibraryDesugaringEnabled true",
+                      gradle_text,
+                      count=1,
+                  )
+              else:
+                  gradle_text = re.sub(
+                      r"android\s*\{",
+                      'android {\n    compileOptions {\n        coreLibraryDesugaringEnabled true\n        sourceCompatibility JavaVersion.VERSION_1_8\n        targetCompatibility JavaVersion.VERSION_1_8\n    }',
+                      gradle_text,
+                      count=1,
+                  )
+              # add dependency
+              if "dependencies {" in gradle_text:
+                  gradle_text = re.sub(
+                      r"dependencies\s*\{",
+                      'dependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"',
+                      gradle_text,
+                      count=1,
+                  )
+              else:
+                  gradle_text += '\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"\n}\n'
+              gradle_path.write_text(gradle_text)
+              print("Enabled core library desugaring")
+          else:
+              print("Core library desugaring already configured")
+
+          # I. Manifest: INTERNET permission + explicit exported (correct for
+          #    API 31+ requirement, harmless on API 28)
           manifest_path = root / "android/app/src/main/AndroidManifest.xml"
           manifest_text = manifest_path.read_text()
+
           if "android.permission.INTERNET" not in manifest_text:
               manifest_text = re.sub(
                   r"(<manifest[^>]*>)",
@@ -114,10 +187,21 @@ jobs:
                   manifest_text,
                   count=1,
               )
-              manifest_path.write_text(manifest_text)
               print("Added INTERNET permission")
           else:
               print("INTERNET permission already present")
+
+          if 'android:name=".MainActivity"' in manifest_text and "android:exported" not in manifest_text:
+              manifest_text = manifest_text.replace(
+                  'android:name=".MainActivity"',
+                  'android:name=".MainActivity"\n            android:exported="true"',
+                  1,
+              )
+              print("Added android:exported to MainActivity")
+          else:
+              print("android:exported already present or MainActivity tag not found as expected")
+
+          manifest_path.write_text(manifest_text)
 
           print("All Android build configurations patched successfully.")
           PYEOF
